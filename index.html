@@ -59,6 +59,11 @@
       margin-right: 5px;
       padding: 5px 10px;
       cursor: pointer;
+      background-color: var(--color-primary);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-family: 'Lateef', cursive;
     }
     
     .form-group {
@@ -89,6 +94,7 @@
       cursor: pointer;
       font-family: 'Amiri', serif;
       font-size: 1.1rem;
+      width: 100%;
     }
     
     button:hover {
@@ -114,6 +120,17 @@
       border-radius: 5px 5px 0 0;
       background: white;
       color: var(--color-primary);
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 20px;
+    }
+    
+    .error {
+      color: red;
+      text-align: center;
+      margin: 10px 0;
     }
   </style>
 </head>
@@ -146,16 +163,18 @@
       </div>
       
       <button id="add-item">إضافة الطبق</button>
+      <div id="error-message" class="error"></div>
       
       <h2>الأطباق الحالية</h2>
       <div class="menu-items" id="main-items">
-        <!-- سيتم ملؤها بالبيانات من Firebase -->
+        <div class="loading">جاري التحميل...</div>
       </div>
     </div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
   
   <script>
     // تكوين Firebase
@@ -172,82 +191,110 @@
     // تهيئة Firebase
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
+    const auth = firebase.auth();
     let currentCategory = 'main';
 
-    // تبديل الأقسام
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', function() {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        this.classList.add('active');
-        currentCategory = this.getAttribute('data-tab');
-        loadMenuItems(currentCategory);
-      });
-    });
-
-    // تحميل الأصناف من Firebase
-    function loadMenuItems(category) {
-      const itemsContainer = document.getElementById(`${category}-items`);
-      itemsContainer.innerHTML = '<p>جاري التحميل...</p>';
+    // تسجيل الدخول كمسؤول (يمكن استبداله بنظام تسجيل دخول كامل لاحقاً)
+    function adminLogin() {
+      const email = "admin@darhassna.com"; // استبدل ببريد المدير الفعلي
+      const password = "adminpassword"; // استبدل بكلمة المرور الفعلية
       
-      database.ref(`menu/${category}`).once('value').then(snapshot => {
-        const items = snapshot.val();
-        itemsContainer.innerHTML = '';
+      auth.signInWithEmailAndPassword(email, password)
+        .then(() => {
+          console.log("تم تسجيل الدخول كمسؤول");
+          initApp();
+        })
+        .catch(error => {
+          console.error("خطأ في تسجيل الدخول:", error);
+          document.getElementById('error-message').textContent = "خطأ في المصادقة: " + error.message;
+        });
+    }
+
+    // بدء التطبيق بعد المصادقة
+    function initApp() {
+      // تبديل الأقسام
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          this.classList.add('active');
+          currentCategory = this.getAttribute('data-tab');
+          loadMenuItems(currentCategory);
+        });
+      });
+
+      // تحميل الأصناف من Firebase
+      function loadMenuItems(category) {
+        const itemsContainer = document.getElementById(`${category}-items`);
+        itemsContainer.innerHTML = '<div class="loading">جاري التحميل...</div>';
         
-        if (!items || Object.keys(items).length === 0) {
-          itemsContainer.innerHTML = '<p>لا توجد أطباق في هذا القسم</p>';
+        database.ref(`menu/${category}`).once('value').then(snapshot => {
+          const items = snapshot.val();
+          itemsContainer.innerHTML = '';
+          
+          if (!items || Object.keys(items).length === 0) {
+            itemsContainer.innerHTML = '<p>لا توجد أطباق في هذا القسم</p>';
+            return;
+          }
+          
+          Object.keys(items).forEach(key => {
+            const item = items[key];
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'menu-item';
+            itemDiv.innerHTML = `
+              <div>
+                <strong>${item.name}</strong> - ${item.price} درهم
+                <p>${item.desc || 'لا يوجد وصف'}</p>
+              </div>
+              <div class="item-actions">
+                <button onclick="editItem('${category}', '${key}')">تعديل</button>
+                <button onclick="deleteItem('${category}', '${key}')">حذف</button>
+              </div>
+            `;
+            itemsContainer.appendChild(itemDiv);
+          });
+        }).catch(error => {
+          itemsContainer.innerHTML = `<div class="error">خطأ في تحميل البيانات: ${error.message}</div>`;
+        });
+      }
+
+      // إضافة صنف جديد
+      document.getElementById('add-item').addEventListener('click', function() {
+        const name = document.getElementById('item-name').value;
+        const price = document.getElementById('item-price').value;
+        const desc = document.getElementById('item-desc').value;
+        const errorElement = document.getElementById('error-message');
+        
+        if (!name || !price) {
+          errorElement.textContent = 'الرجاء إدخال اسم الطبق والسعر';
           return;
         }
         
-        Object.keys(items).forEach(key => {
-          const item = items[key];
-          const itemDiv = document.createElement('div');
-          itemDiv.className = 'menu-item';
-          itemDiv.innerHTML = `
-            <div>
-              <strong>${item.name}</strong> - ${item.price} درهم
-              <p>${item.desc || 'لا يوجد وصف'}</p>
-            </div>
-            <div class="item-actions">
-              <button onclick="editItem('${category}', '${key}')">تعديل</button>
-              <button onclick="deleteItem('${category}', '${key}')">حذف</button>
-            </div>
-          `;
-          itemsContainer.appendChild(itemDiv);
-        });
+        errorElement.textContent = '';
+        
+        const newItem = {
+          name: name,
+          price: price,
+          desc: desc
+        };
+        
+        database.ref(`menu/${currentCategory}`).push(newItem)
+          .then(() => {
+            alert('تمت إضافة الطبق بنجاح');
+            document.getElementById('item-name').value = '';
+            document.getElementById('item-price').value = '';
+            document.getElementById('item-desc').value = '';
+            loadMenuItems(currentCategory);
+          })
+          .catch(error => {
+            errorElement.textContent = 'حدث خطأ: ' + error.message;
+          });
       });
+
+      // تحميل الأصناف عند بدء التشغيل
+      loadMenuItems(currentCategory);
     }
 
-    // إضافة صنف جديد
-    document.getElementById('add-item').addEventListener('click', function() {
-      const name = document.getElementById('item-name').value;
-      const price = document.getElementById('item-price').value;
-      const desc = document.getElementById('item-desc').value;
-      
-      if (!name || !price) {
-        alert('الرجاء إدخال اسم الطبق والسعر');
-        return;
-      }
-      
-      const newItem = {
-        name: name,
-        price: price,
-        desc: desc
-      };
-      
-      database.ref(`menu/${currentCategory}`).push(newItem)
-        .then(() => {
-          alert('تمت إضافة الطبق بنجاح');
-          document.getElementById('item-name').value = '';
-          document.getElementById('item-price').value = '';
-          document.getElementById('item-desc').value = '';
-          loadMenuItems(currentCategory);
-        })
-        .catch(error => {
-          alert('حدث خطأ: ' + error.message);
-        });
-    });
-
-    // تعديل صنف
+    // تعريف الدوال العامة للاستخدام في الأزرار
     window.editItem = function(category, key) {
       const newName = prompt('ادخل الاسم الجديد:');
       if (!newName) return;
@@ -265,22 +312,27 @@
       .then(() => {
         alert('تم التعديل بنجاح');
         loadMenuItems(category);
+      })
+      .catch(error => {
+        alert('حدث خطأ: ' + error.message);
       });
     };
 
-    // حذف صنف
     window.deleteItem = function(category, key) {
       if (confirm('هل أنت متأكد من حذف هذا الطبق؟')) {
         database.ref(`menu/${category}/${key}`).remove()
           .then(() => {
             alert('تم الحذف بنجاح');
             loadMenuItems(category);
+          })
+          .catch(error => {
+            alert('حدث خطأ: ' + error.message);
           });
       }
     };
 
-    // تحميل الأصناف عند بدء التشغيل
-    loadMenuItems(currentCategory);
+    // بدء التطبيق بتسجيل الدخول
+    adminLogin();
   </script>
 </body>
 </html>
